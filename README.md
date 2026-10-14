@@ -1,3 +1,9 @@
+
+<img align="center">
+  <src="https://github.com/toruseo/UNsim/blob/main/docs/artworks/svg/unsim-hero-white.svg">
+  <img alt="UXsim Logo" src="https://github.com/toruseo/UNsim/blob/main/docs/artworks/svg/unsim-hero-white.svg">
+</img>
+
 # UNsim: Python traffic simulation with Autodiff
 
 [![PyPi](https://img.shields.io/pypi/v/unsim.svg)](https://pypi.python.org/pypi/unsim)
