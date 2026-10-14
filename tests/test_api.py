@@ -20,15 +20,21 @@ from unsim.unsim_diff import (
 from unsim.api import ParameterRef, VariableSet, PiecewiseConstant, CustomVariable
 
 
-def build_merge_world():
-    """Two origins merging into one bottleneck link (route_choice=fix)."""
+def build_merge_world(merge_priority2=1):
+    """Two origins merging into one bottleneck link (route_choice=fix).
+
+    Parameters
+    ----------
+    merge_priority2 : float, optional
+        Merge priority of link2. link1 has priority 1.
+    """
     W = World(name="", deltat=5, tmax=2000, print_mode=0)
     W.addNode("orig1", 0, 0)
     W.addNode("orig2", 0, 2)
     W.addNode("merge", 1, 1)
     W.addNode("dest", 2, 1)
     W.addLink("link1", "orig1", "merge", length=1000, free_flow_speed=20, jam_density=0.2, merge_priority=1)
-    W.addLink("link2", "orig2", "merge", length=1000, free_flow_speed=20, jam_density=0.2, merge_priority=1)
+    W.addLink("link2", "orig2", "merge", length=1000, free_flow_speed=20, jam_density=0.2, merge_priority=merge_priority2)
     W.addLink("link3", "merge", "dest", length=1000, free_flow_speed=20, jam_density=0.2)
     W.adddemand("orig1", "dest", 0, 1000, 0.45)
     W.adddemand("orig2", "dest", 400, 1000, 0.6)
@@ -141,10 +147,12 @@ class TestGradient:
         assert abs(g_consistent - g_naive) > 1e-3 * max(abs(g_consistent), 1.0)
 
     def test_multiple_refs(self):
-        M = build_merge_world().compile(backend="jax")
+        # Priorities 1:1 put the merge on a kink (gradient differs between traces).
+        # TTT is invariant to merge priority here (dTTT/dmp1 = 0), so link1 outflow is used instead.
+        M = build_merge_world(merge_priority2=2).compile(backend="jax")
         u3 = M.parameter("link3", "free_flow_speed")
         mp1 = M.parameter("link1", "merge_priority")
-        objective = M.objective(lambda R: R.metrics.total_travel_time())
+        objective = M.objective(lambda R: jnp.sum(R.link("link1").cum_departure()))
         _, grad = objective.value_and_gradient(wrt=[u3, mp1])
         _, grad_u3 = objective.value_and_gradient(wrt=[u3])
         _, grad_mp1 = objective.value_and_gradient(wrt=[mp1])

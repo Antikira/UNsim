@@ -63,6 +63,32 @@ def _factory_minimal_merge(n_in=2):
     return factory
 
 
+def _factory_merge3(priorities=(1, 2, 1), demands=(0.4, 0.4, 0.4)):
+    """Factory for 3-to-1 merge world (link1-3 -> link4).
+
+    Parameters
+    ----------
+    priorities : tuple of float, optional
+        Merge priorities of link1, link2, link3.
+    demands : tuple of float, optional
+        Demand rates (veh/s) from orig1, orig2, orig3 to dest during 0-1000 s.
+    """
+    def factory():
+        W = World(name="", deltat=5, tmax=1200, print_mode=0)
+        for i in range(3):
+            W.addNode(f"orig{i+1}", 0, 2 * i)
+        W.addNode("merge", 1, 2)
+        W.addNode("dest", 2, 2)
+        for i in range(3):
+            W.addLink(f"link{i+1}", f"orig{i+1}", "merge", length=1000, free_flow_speed=20,
+                      jam_density=0.2, merge_priority=priorities[i])
+        W.addLink("link4", "merge", "dest", length=1000, free_flow_speed=20, jam_density=0.2)
+        for i in range(3):
+            W.adddemand(f"orig{i+1}", "dest", 0, 1000, demands[i])
+        return W
+    return factory
+
+
 def _simulate_minimal_merge(factory, D, p, S, return_linkwise=False):
     """Run minimal merge World through simulate and return merge node flow(s)."""
     W = factory()
@@ -198,55 +224,7 @@ class TestNumericalAgreement:
 
     def test_merge_3inlinks(self):
         """3-to-1 merge, multiple priorities and congestion (Issue #18)."""
-
-        def factory():
-            W = World(name="", deltat=5, tmax=1200, print_mode=0)
-            W.addNode("orig1", 0, 0)
-            W.addNode("orig2", 0, 2)
-            W.addNode("orig3", 0, 4)
-            W.addNode("merge", 1, 2)
-            W.addNode("dest", 2, 2)
-            W.addLink(
-                "link1",
-                "orig1",
-                "merge",
-                length=1000,
-                free_flow_speed=20,
-                jam_density=0.2,
-                merge_priority=1,
-            )
-            W.addLink(
-                "link2",
-                "orig2",
-                "merge",
-                length=1000,
-                free_flow_speed=20,
-                jam_density=0.2,
-                merge_priority=2,
-            )
-            W.addLink(
-                "link3",
-                "orig3",
-                "merge",
-                length=1000,
-                free_flow_speed=20,
-                jam_density=0.2,
-                merge_priority=1,
-            )
-            W.addLink(
-                "link4",
-                "merge",
-                "dest",
-                length=1000,
-                free_flow_speed=20,
-                jam_density=0.2,
-            )
-            W.adddemand("orig1", "dest", 0, 1000, 0.4)
-            W.adddemand("orig2", "dest", 0, 1000, 0.4)
-            W.adddemand("orig3", "dest", 0, 1000, 0.4)
-            return W
-
-        W, params, config, state = run_both(factory)
+        W, params, config, state = run_both(_factory_merge3())
         ttt_orig = W.analyzer.total_travel_time
         ttt_jax = float(total_travel_time(state, config))
         assert equal_tolerance(ttt_jax, ttt_orig)
@@ -274,17 +252,15 @@ class TestNumericalAgreement:
 
     @staticmethod
     def _assert_all_equal_tolerance(val_arr, check_arr, rel_tol=0.1, abs_tol=0.1, err_msg=""):
-        """Check that all elements in val_arr match check_arr using equal_tolerance."""
-        val_flat = jnp.ravel(val_arr)
-        check_flat = jnp.ravel(check_arr)
+        """Check that all elements in val_arr match check_arr with the same criterion as equal_tolerance."""
+        val_flat = np.ravel(np.asarray(val_arr, dtype=np.float64))
+        check_flat = np.ravel(np.asarray(check_arr, dtype=np.float64))
         assert len(val_flat) == len(check_flat), f"Length mismatch: {len(val_flat)} vs {len(check_flat)}"
-        mismatches = []
-        for idx, (v, c) in enumerate(zip(val_flat, check_flat)):
-            if not equal_tolerance(float(v), float(c), rel_tol=rel_tol, abs_tol=abs_tol):
-                mismatches.append((idx, float(v), float(c)))
-        if mismatches:
-            details = ", ".join([f"idx {i}: val={v:.4f} vs check={c:.4f}" for i, v, c in mismatches])
-            raise AssertionError(f"{err_msg} Mismatches found (showing first {len(mismatches)}): {details}")
+        atol = np.where((check_flat == 0) & (abs_tol == 0), 0.1, abs_tol)
+        bad = np.where(np.abs(val_flat - check_flat) > np.abs(check_flat * rel_tol) + atol)[0]
+        if len(bad) > 0:
+            details = ", ".join([f"idx {i}: val={val_flat[i]:.4f} vs check={check_flat[i]:.4f}" for i in bad])
+            raise AssertionError(f"{err_msg} {len(bad)} mismatches: {details}")
 
     def _check_linkwise(self, W, state, config, rel_tol=0.1, abs_tol=0.5):
         for link_id, link in enumerate(W.LINKS):
@@ -325,49 +301,12 @@ class TestNumericalAgreement:
 
     def test_merge_3inlinks_linkwise(self):
         """3-to-1 merge (Issue #18): check every link's cumulative arrival and departure."""
-        def factory():
-            W = World(name="", deltat=5, tmax=1200, print_mode=0)
-            W.addNode("orig1", 0, 0)
-            W.addNode("orig2", 0, 2)
-            W.addNode("orig3", 0, 4)
-            W.addNode("merge", 1, 2)
-            W.addNode("dest", 2, 2)
-            W.addLink("link1", "orig1", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=1)
-            W.addLink("link2", "orig2", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=2)
-            W.addLink("link3", "orig3", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=1)
-            W.addLink("link4", "merge", "dest", length=1000, free_flow_speed=20, jam_density=0.2)
-            W.adddemand("orig1", "dest", 0, 1000, 0.4)
-            W.adddemand("orig2", "dest", 0, 1000, 0.4)
-            W.adddemand("orig3", "dest", 0, 1000, 0.4)
-            return W
-
-        W, params, config, state = run_both(factory)
+        W, params, config, state = run_both(_factory_merge3())
         self._check_linkwise(W, state, config)
 
     def test_merge_surplus_reallocation_linkwise(self):
         """3-to-1 merge with surplus supply reallocation: link1 demand < alpha1 * S."""
-        def factory():
-            W = World(name="", deltat=5, tmax=1200, print_mode=0)
-            W.addNode("orig1", 0, 0)
-            W.addNode("orig2", 0, 2)
-            W.addNode("orig3", 0, 4)
-            W.addNode("merge", 1, 2)
-            W.addNode("dest", 2, 2)
-            W.addLink("link1", "orig1", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=1)
-            W.addLink("link2", "orig2", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=1)
-            W.addLink("link3", "orig3", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=1)
-            W.addLink("link4", "merge", "dest", length=1000, free_flow_speed=20, jam_density=0.2)
-            W.adddemand("orig1", "dest", 0, 1000, 0.1)
-            W.adddemand("orig2", "dest", 0, 1000, 0.5)
-            W.adddemand("orig3", "dest", 0, 1000, 0.5)
-            return W
-
+        factory = _factory_merge3(priorities=(1, 1, 1), demands=(0.1, 0.5, 0.5))
         W, params, config, state = run_both(factory)
         self._check_linkwise(W, state, config)
 
@@ -405,7 +344,7 @@ class TestNumericalAgreement:
         self._assert_all_equal_tolerance(flow_scaled, flow_base, rel_tol=1e-4, abs_tol=1e-5)
 
     def test_tiny_priority_allocation(self):
-        """Review comment P2: tiny priority must preserve true allocation ratio 1:2:1 -> [0.25, 0.5, 0.25]."""
+        """Merge allocation is invariant to priority scale: congested priorities 1e-12:2e-12:1e-12 must give the 1:2:1 split [0.25, 0.5, 0.25] (no epsilon floor on the priority sum)."""
         D = jnp.array([1.0, 1.0, 1.0])
         p_tiny = jnp.array([1e-12, 2e-12, 1e-12])
         S = jnp.float32(1.0)
@@ -417,30 +356,11 @@ class TestNumericalAgreement:
     @pytest.mark.parametrize("scale", [1e-12, 1e-3, 0.1, 2.0, 10.0, 1e3])
     def test_simulation_scale_invariance(self, scale):
         """Simulation check: scaling merge priority by constant k should not change simulation results."""
-        def factory(priority_multiplier=1.0):
-            W = World(name="", deltat=5, tmax=1200, print_mode=0)
-            W.addNode("orig1", 0, 0)
-            W.addNode("orig2", 0, 2)
-            W.addNode("orig3", 0, 4)
-            W.addNode("merge", 1, 2)
-            W.addNode("dest", 2, 2)
-            W.addLink("link1", "orig1", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=1.0 * priority_multiplier)
-            W.addLink("link2", "orig2", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=2.0 * priority_multiplier)
-            W.addLink("link3", "orig3", "merge", length=1000, free_flow_speed=20,
-                       jam_density=0.2, merge_priority=1.0 * priority_multiplier)
-            W.addLink("link4", "merge", "dest", length=1000, free_flow_speed=20, jam_density=0.2)
-            W.adddemand("orig1", "dest", 0, 1000, 0.4)
-            W.adddemand("orig2", "dest", 0, 1000, 0.4)
-            W.adddemand("orig3", "dest", 0, 1000, 0.4)
-            return W
-
-        W_base = factory(1.0)
+        W_base = _factory_merge3()()
         params_base, config_base = world_to_jax(W_base)
         state_base = simulate(params_base, config_base)
 
-        W_scaled = factory(scale)
+        W_scaled = _factory_merge3(priorities=(1.0 * scale, 2.0 * scale, 1.0 * scale))()
         params_scaled, config_scaled = world_to_jax(W_scaled)
         state_scaled = simulate(params_scaled, config_scaled)
 
@@ -567,7 +487,6 @@ class TestGradient:
         """Prior implementation from e66a512~1 using differentiable_mid."""
         D1, D2 = D[0], D[1]
         p1, p2 = p[0], p[1]
-        total_p = p1 + p2
         a1 = p1 / jnp.sum(p)
         a2 = p2 / jnp.sum(p)
         total_D = D1 + D2
