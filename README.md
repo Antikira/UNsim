@@ -1,8 +1,4 @@
-
-<img align="center">
-  <src="https://github.com/toruseo/UNsim/blob/main/docs/artworks/svg/unsim-hero-white.svg">
-  <img alt="UXsim Logo" src="https://github.com/toruseo/UNsim/blob/main/docs/artworks/svg/unsim-hero-white.svg">
-</img>
+<img align="center"><img alt="UXsim Logo" src="https://github.com/toruseo/UNsim/blob/main/docs/artworks/svg/unsim-hero-white.svg"></img>
 
 # UNsim: Python/JAX traffic simulation with Autodiff
 
